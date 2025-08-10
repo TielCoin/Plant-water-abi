@@ -308,12 +308,15 @@ if (orb) {
     // time & end condition
     timeLeft -= dt / 1000;
     if (timeLeft <= 0) {
-      running = false;
-      // show end message
-      endScreen.style.display = 'block';
-      setTimeout(() => { /* keep message visible */ }, 500);
+      // wherever Game Over is triggered in your code
+document.getElementById("endScreen").style.display = "block";
+running = false;
+
+// add this
+setTimeout(() => {
+  window.location.href = window.location.href;
+}, 2000);
     }
-  }
 
   // draw
   drawScene();
