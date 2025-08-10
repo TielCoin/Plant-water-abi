@@ -23,7 +23,7 @@ const startBtn = document.getElementById('startBtn');
 const loaderText = document.getElementById('loaderText');
 const endScreen = document.getElementById('endScreen');
 
-// --- Asset list (exact filenames)
+// --- Asset list
 const ASSETS = {
   Front: 'Front.png',
   Back: 'Back.PNG',
@@ -33,7 +33,7 @@ const ASSETS = {
   Sun: 'sun.png'
 };
 
-// --- Web sounds (hosted)
+// --- Web sounds
 const ORB_SPAWN_URL = 'https://actions.google.com/sounds/v1/cartoon/pop.ogg';
 const ORB_COLLECT_URL = 'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg';
 
@@ -60,11 +60,11 @@ function updateLoader() {
   loaderText.textContent = `Loading assets... ${pct}%`;
 }
 
-// --- Sounds (Audio objects)
+// --- Sounds
 const audioOrbSpawn = new Audio(ORB_SPAWN_URL);
 const audioOrbCollect = new Audio(ORB_COLLECT_URL);
 
-// Small WebAudio splash for hits (works without external files)
+// WebAudio splash
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 const audioCtx = AudioCtx ? new AudioCtx() : null;
 function playSplash(volume = 0.16, freq = 700, dur = 0.26) {
@@ -84,14 +84,14 @@ let running = false;
 let lastTS = 0;
 let rafId = 0;
 
-let timeLeft = 60.0; // 60s gameplay
+let timeLeft = 60.0; // seconds
 let score = 0;
 
 const player = {
   x: window.innerWidth / 2,
   y: window.innerHeight - 135,
   w: 120, h: 140,
-  dir: 'back',        // 'back' or 'front'
+  dir: 'back',
   targetX: window.innerWidth / 2,
   ease: 0.16
 };
@@ -104,20 +104,18 @@ let sunlightMeter = 0;
 let superReady = false;
 const particles = [];
 
-// --- Utility funcs
+// Utility
 function rand(min, max) { return min + Math.random() * (max - min); }
 function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
 
-// --- Initialize plants
+// --- Plants
 function spawnPlants() {
   plants.length = 0;
-  const count = 4 + Math.floor(Math.random() * 2);
+  const count = 5;
   const margin = 80;
   const minDistance = 120;
-
   for (let i = 0; i < count; i++) {
-    let px, py;
-    let safe = false;
+    let px, py, safe;
     let tries = 0;
     do {
       px = margin + Math.random() * (canvas.width - margin * 2);
@@ -125,14 +123,7 @@ function spawnPlants() {
       safe = plants.every(p => Math.hypot(p.x - px, p.y - py) >= minDistance);
       tries++;
     } while (!safe && tries < 50);
-
-    plants.push({
-      x: px, y: py,
-      w: 110, h: 78,
-      thirst: 100,
-      alive: true,
-      grow: 0
-    });
+    plants.push({ x: px, y: py, w: 110, h: 78, thirst: 100, alive: true, grow: 0 });
   }
 }
 
@@ -177,12 +168,11 @@ function handleSwipe(endX, endY, startX, startY) {
     } else {
       player.dir = 'front';
       setTimeout(() => player.dir = 'back', 220);
-      const powerBoost = 1.6;
       drops.push({
         x: player.x,
         y: player.y,
-        vx: (dx / 18) * powerBoost,
-        vy: (dy / 36) * powerBoost,
+        vx: (dx / 18) * 1.6,
+        vy: (dy / 36) * 1.6,
         life: 4500
       });
     }
@@ -196,14 +186,13 @@ function dropHitsPlant(d, p) {
 
 function spawnOrb() {
   if (orb) return;
-  const margin = 80;
-  const ox = margin + Math.random() * (canvas.width - margin * 2);
+  const ox = 80 + Math.random() * (canvas.width - 160);
   orb = { x: ox, y: -12, r: 14, vy: 2.6 };
   lastOrbTime = performance.now();
   try { audioOrbSpawn.play(); } catch (e) {}
 }
 
-// --- Reusable game start ---
+// --- Game control
 function startGame() {
   spawnPlants();
   timeLeft = 60;
@@ -221,14 +210,13 @@ function startGame() {
   rafId = requestAnimationFrame(loop);
 }
 
-// --- Game over ---
 function gameOver() {
   running = false;
   cancelAnimationFrame(rafId);
   endScreen.style.display = 'block';
 }
 
-// --- Loop ---
+// --- Update particles
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
@@ -237,6 +225,7 @@ function updateParticles(dt) {
   }
 }
 
+// --- Main loop
 function loop(ts) {
   if (!lastTS) lastTS = ts;
   const dt = ts - lastTS;
@@ -245,6 +234,7 @@ function loop(ts) {
   if (running) {
     player.x += (player.targetX - player.x) * player.ease;
 
+    // Update drops
     for (let i = drops.length - 1; i >= 0; i--) {
       const d = drops[i];
       d.x += d.vx; d.y += d.vy; d.vy += 0.28; d.life -= dt;
@@ -263,9 +253,10 @@ function loop(ts) {
           break;
         }
       }
-      if (hit || d.y > canvas.height + 80 || d.life <= 0 || d.x < -120 || d.x > canvas.width + 120) drops.splice(i, 1);
+      if (hit || d.y > canvas.height + 80 || d.life <= 0) drops.splice(i, 1);
     }
 
+    // Update orb
     if (orb) {
       orb.y += orb.vy;
       if (orb.y > canvas.height - 220 && Math.abs(orb.x - player.x) < 60) {
@@ -282,12 +273,13 @@ function loop(ts) {
         for (let p of plants) if (p.alive) p.thirst = Math.max(0, p.thirst - 10);
         orb = null;
       }
-    } else {
-      if (!lastOrbTime || (performance.now() - lastOrbTime) > 5000) spawnOrb();
+    } else if (performance.now() - lastOrbTime > 5000) {
+      spawnOrb();
     }
 
     updateParticles(dt);
 
+    // Update plants
     for (let p of plants) {
       if (!p.alive) continue;
       p.thirst = Math.max(0, p.thirst - (3.2 * dt / 1000));
@@ -296,29 +288,78 @@ function loop(ts) {
     }
 
     timeLeft -= dt / 1000;
-    if (timeLeft <= 0) {
-      gameOver();
-    }
+    if (timeLeft <= 0) gameOver();
   }
 
   drawScene();
   if (running) rafId = requestAnimationFrame(loop);
 }
 
-// --- Drawing functions remain same as your original ---
-// (I kept them as is from your original script)
+// --- Drawing ---
+function drawScene() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (imgs.Bg) ctx.drawImage(imgs.Bg, 0, 0, canvas.width, canvas.height);
+
+  // Plants
+  for (let p of plants) {
+    if (!p.alive) {
+      if (imgs.Dead) ctx.drawImage(imgs.Dead, p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+    } else {
+      if (imgs.Health) ctx.drawImage(imgs.Health, p.x - p.w / 2, p.y - p.h / 2, p.w, p.h);
+    }
+  }
+
+  // Drops
+  ctx.fillStyle = 'rgba(0,0,255,0.5)';
+  for (let d of drops) {
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Orb
+  if (orb) {
+    if (imgs.Sun) {
+      ctx.drawImage(imgs.Sun, orb.x - 20, orb.y - 20, 40, 40);
+    } else {
+      ctx.fillStyle = 'yellow';
+      ctx.beginPath();
+      ctx.arc(orb.x, orb.y, orb.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Player
+  const img = player.dir === 'back' ? imgs.Back : imgs.Front;
+  if (img) ctx.drawImage(img, player.x - player.w / 2, player.y - player.h / 2, player.w, player.h);
+
+  // Particles
+  ctx.fillStyle = 'rgba(255,255,0,0.8)';
+  for (let p of particles) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // UI
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px Arial';
+  ctx.fillText(`Score: ${score}`, 20, 30);
+  ctx.fillText(`Time: ${Math.ceil(timeLeft)}`, 20, 60);
+  ctx.fillText(`Sunlight: ${Math.floor(sunlightMeter)}%`, 20, 90);
+}
 
 // --- Boot ---
 preloadAssets().then(() => {
   loaderText.textContent = 'Assets ready';
   startBtn.disabled = false;
   startBtn.textContent = 'Start Game';
-  startBtn.addEventListener('click', () => { try { audioOrbSpawn.play(); audioOrbCollect.play(); } catch (e) {} if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); });
 });
 
 startBtn.addEventListener('click', () => {
   startDialog.style.display = 'none';
   endScreen.style.display = 'none';
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   startGame();
 });
 
@@ -327,15 +368,10 @@ endScreen.addEventListener('click', () => {
   startGame();
 });
 
-// Prevent touch scrolling when swiping on the canvas
-document.body.addEventListener("touchstart", function(e) {
-    if (e.target.tagName.toLowerCase() === 'canvas') {
-        e.preventDefault();
-    }
+// Prevent touch scrolling on canvas
+document.body.addEventListener("touchstart", e => {
+    if (e.target.tagName.toLowerCase() === 'canvas') e.preventDefault();
 }, { passive: false });
-
-document.body.addEventListener("touchmove", function(e) {
-    if (e.target.tagName.toLowerCase() === 'canvas') {
-        e.preventDefault();
-    }
+document.body.addEventListener("touchmove", e => {
+    if (e.target.tagName.toLowerCase() === 'canvas') e.preventDefault();
 }, { passive: false });
