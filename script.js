@@ -1,313 +1,152 @@
-window.addEventListener("DOMContentLoaded", function () {
-  const refreshBtn = document.getElementById("refreshBtn");
-  if (refreshBtn) {
-    refreshBtn.addEventListener("click", function (e) {
-      e.preventDefault();
-      window.location.href = window.location.href; // reload current URL
-    });
-  }
-});
+// === GAME VARIABLES ===
+let canvas = document.getElementById('gameCanvas');
+let ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-// Completely block default touch gestures on the page
-document.addEventListener('touchmove', function(e) {
-    e.preventDefault();
-}, { passive: false });
-
-/* script.js
-   Full game logic. Place this file alongside index.html and style.css
-   and the required PNGs:
-     Front.png, Back.PNG, Health.PNG, Dead.PNG, Bg.png, sun.png
-*/
-
-// --- Canvas setup
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
-
-// --- UI elements
-const startDialog = document.getElementById('startDialog');
-const startBtn = document.getElementById('startBtn');
-const loaderText = document.getElementById('loaderText');
-const endScreen = document.getElementById('endScreen');
-
-// --- Asset list (exact filenames)
-const ASSETS = {
-  Front: 'Front.png',
-  Back: 'Back.PNG',
-  Health: 'Health.PNG',
-  Dead: 'Dead.PNG',
-  Bg: 'Bg.png',
-  Sun: 'sun.png'
-};
-
-// --- Web sounds (hosted)
-const ORB_SPAWN_URL = 'https://actions.google.com/sounds/v1/cartoon/pop.ogg';
-const ORB_COLLECT_URL = 'https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg';
-
-// Preload Image storage
-const imgs = {};
-let assetsTotal = Object.keys(ASSETS).length;
-let assetsLoaded = 0;
-
-// Preload images with progress
-function preloadAssets() {
-  return new Promise((resolve) => {
-    assetsLoaded = 0;
-    Object.entries(ASSETS).forEach(([key, path]) => {
-      const img = new Image();
-      img.onload = () => { imgs[key] = img; assetsLoaded++; updateLoader(); if (assetsLoaded === assetsTotal) resolve(); };
-      img.onerror = () => { imgs[key] = null; assetsLoaded++; updateLoader(); if (assetsLoaded === assetsTotal) resolve(); };
-      img.src = path;
-    });
-  });
-}
-
-function updateLoader() {
-  const pct = Math.round((assetsLoaded / assetsTotal) * 100);
-  loaderText.textContent = `Loading assets... ${pct}%`;
-}
-
-// --- Sounds (Audio objects)
-const audioOrbSpawn = new Audio(ORB_SPAWN_URL);
-const audioOrbCollect = new Audio(ORB_COLLECT_URL);
-
-// Small WebAudio splash for hits (works without external files)
-const AudioCtx = window.AudioContext || window.webkitAudioContext;
-const audioCtx = AudioCtx ? new AudioCtx() : null;
-function playSplash(volume = 0.16, freq = 700, dur = 0.26) {
-  if (!audioCtx) return;
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.type = 'triangle';
-  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  g.gain.setValueAtTime(volume, audioCtx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
-  o.connect(g); g.connect(audioCtx.destination);
-  o.start(); o.stop(audioCtx.currentTime + dur);
-}
-
-// --- Game state
 let running = false;
 let lastTS = 0;
-let rafId = 0;
-
-let timeLeft = 60.0; // 60s gameplay
+let rafId;
+let timeLeft = 60;
 let score = 0;
-
-const player = {
-  x: window.innerWidth / 2,
-  y: window.innerHeight - 135,
-  w: 120, h: 140,
-  dir: 'back',        // 'back' or 'front'
-  targetX: window.innerWidth / 2,
-  ease: 0.16
-};
-
-const plants = [];
-const drops = [];
-let orb = null;
-let lastOrbTime = 0;
 let sunlightMeter = 0;
 let superReady = false;
-const particles = [];
 
-// --- Utility funcs
-function rand(min, max) { return min + Math.random() * (max - min); }
-function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+let player = { x: canvas.width / 2, y: canvas.height - 150, w: 80, h: 80 };
+let drops = [];
+let plants = [];
+let pests = [];
+let suns = [];
 
-// --- Initialize plants
+// === DOM ELEMENTS ===
+const endScreen = document.getElementById("endScreen");
+const startBtn = document.getElementById("startBtn");
+
+// === START BUTTON HANDLER ===
+startBtn.addEventListener("click", () => {
+  document.getElementById("startDialog").style.display = "none";
+  startGame();
+});
+
+// === START GAME FUNCTION ===
+function startGame() {
+  running = true;
+  timeLeft = 60;
+  score = 0;
+  sunlightMeter = 0;
+  superReady = false;
+  lastTS = 0;
+  drops = [];
+  plants = [];
+  pests = [];
+  suns = [];
+  spawnPlants();
+  rafId = requestAnimationFrame(loop);
+}
+
+// === GAME LOOP ===
+function loop(ts) {
+  if (!running) return;
+
+  const dt = (ts - lastTS) / 1000;
+  lastTS = ts;
+
+  update(dt);
+  render();
+
+  if (timeLeft <= 0) {
+    gameOver();
+    return;
+  }
+
+  rafId = requestAnimationFrame(loop);
+}
+
+// === GAME OVER ===
+function gameOver() {
+  running = false;
+  cancelAnimationFrame(rafId);
+  endScreen.style.display = "block"; // show Game Over + refresh button
+}
+
+// === REFRESH BUTTON HANDLER ===
+document.getElementById("refreshBtn").addEventListener("click", function (e) {
+  e.preventDefault();
+  window.location.href = window.location.href; // reload URL
+});
+
+// === GAME LOGIC FUNCTIONS ===
 function spawnPlants() {
-  plants.length = 0;
-  const count = 4 + Math.floor(Math.random() * 2);
-  const margin = 80;
-  const minDistance = 120;
-
-  for (let i = 0; i < count; i++) {
-    let px, py;
-    let safe = false;
-    let tries = 0;
-    do {
-      px = margin + Math.random() * (canvas.width - margin * 2);
-      py = canvas.height * 0.35 + Math.random() * canvas.height * 0.18;
-      safe = plants.every(p => Math.hypot(p.x - px, p.y - py) >= minDistance);
-      tries++;
-    } while (!safe && tries < 50);
-
+  for (let i = 0; i < 5; i++) {
     plants.push({
-      x: px, y: py,
-      w: 110, h: 78,
-      thirst: 100,
-      alive: true,
-      grow: 0
+      x: i * (canvas.width / 5) + 50,
+      y: canvas.height - 200,
+      w: 60,
+      h: 60,
+      health: 100
     });
   }
 }
 
-// --- Input: touch/mouse swipe handling
-let touchStart = null;
-canvas.addEventListener('touchstart', e => { touchStart = e.touches[0]; }, { passive: true });
-canvas.addEventListener('touchend', e => {
-  if (!touchStart) return;
-  const t = e.changedTouches[0];
-  handleSwipe(t.clientX, t.clientY, touchStart.clientX, touchStart.clientY);
-  touchStart = null;
-}, { passive: true });
+function update(dt) {
+  timeLeft -= dt;
 
-let mouseDown = null;
-canvas.addEventListener('mousedown', e => { mouseDown = { x: e.clientX, y: e.clientY }; });
-canvas.addEventListener('mouseup', e => {
-  if (!mouseDown) return;
-  handleSwipe(e.clientX, e.clientY, mouseDown.x, mouseDown.y);
-  mouseDown = null;
-});
-function handleSwipe(endX, endY, startX, startY) {
-  const dx = endX - startX, dy = endY - startY;
-  if (Math.abs(dy) < 50 && Math.abs(dx) > 20 && startY > (canvas.height - 180)) {
-    player.targetX = clamp(player.x + dx, 80, canvas.width - 80);
-    return;
-  }
-  if (dy < -28) {
-    if (superReady) {
-      plants.forEach(p => { if (p.alive) { p.thirst = 100; p.grow = 1; } });
-      sunlightMeter = 0; superReady = false;
-      for (let p of plants) {
-        for (let i = 0; i < 28; i++) particles.push({
-          x: p.x + (Math.random() - 0.5) * 80,
-          y: p.y + (Math.random() - 0.5) * 40,
-          vx: (Math.random() - 0.5) * 6, vy: -Math.random() * 6,
-          life: 800
-        });
-      }
-      playSplash(0.44, 380, 0.6);
-      score += 24;
-    } else {
-      player.dir = 'front';
-      setTimeout(() => player.dir = 'back', 220);
-      const powerBoost = 1.6;
-      drops.push({
-        x: player.x,
-        y: player.y,
-        vx: (dx / 18) * powerBoost,
-        vy: (dy / 36) * powerBoost,
-        life: 4500
-      });
-    }
-  }
-}
-
-// --- Collisions
-function dropHitsPlant(d, p) {
-  const px = p.x - p.w / 2, py = p.y - p.h / 2;
-  return d.x > px && d.x < px + p.w && d.y > py && d.y < py + p.h;
-}
-
-// --- Spawn orb
-function spawnOrb() {
-  if (orb) return;
-  const margin = 80;
-  const ox = margin + Math.random() * (canvas.width - margin * 2);
-  orb = { x: ox, y: -12, r: 14, vy: 2.6 };
-  lastOrbTime = performance.now();
-  try { audioOrbSpawn.play(); } catch (e) {}
-}
-
-// --- Main loop
-function loop(ts) {
-  if (!lastTS) lastTS = ts;
-  const dt = ts - lastTS;
-  lastTS = ts;
-
-  if (running) {
-    player.x += (player.targetX - player.x) * player.ease;
-
-    for (let i = drops.length - 1; i >= 0; i--) {
-      const d = drops[i];
-      d.x += d.vx; d.y += d.vy; d.vy += 0.28; d.life -= dt;
-      let hit = false;
-      for (let p of plants) {
-        if (p.alive && dropHitsPlant(d, p)) {
-          p.thirst = 100; p.grow = 1; score += 6;
-          for (let k = 0; k < 10; k++) particles.push({
-            x: d.x + (Math.random() - 0.5) * 18,
-            y: d.y + (Math.random() - 0.5) * 8,
-            vx: (Math.random() - 0.5) * 3, vy: -Math.random() * 3,
-            life: 380
-          });
-          playSplash(0.16, 700 - Math.random() * 200, 0.26);
-          hit = true;
-          break;
-        }
-      }
-      if (hit || d.y > canvas.height + 80 || d.life <= 0 || d.x < -120 || d.x > canvas.width + 120) drops.splice(i, 1);
-    }
-
-    if (orb) {
-      orb.y += orb.vy;
-      if (orb.y > canvas.height - 220 && Math.abs(orb.x - player.x) < 60) {
-        sunlightMeter = clamp(sunlightMeter + 28, 0, 100);
-        if (sunlightMeter >= 100) { sunlightMeter = 100; superReady = true; }
-        for (let i = 0; i < 12; i++) particles.push({
-          x: orb.x + (Math.random() - 0.5) * 16,
-          y: orb.y + (Math.random() - 0.5) * 12,
-          vx: (Math.random() - 0.5) * 2, vy: -Math.random() * 2, life: 320
-        });
-        try { audioOrbCollect.play(); } catch (e) {}
-        orb = null;
-      } else if (orb.y > canvas.height - 60) {
-        for (let p of plants) if (p.alive) p.thirst = Math.max(0, p.thirst - 10);
-        orb = null;
-      }
-    } else {
-      if (!lastOrbTime || (performance.now() - lastOrbTime) > 5000) spawnOrb();
-    }
-
-    updateParticles(dt);
-
-    for (let p of plants) {
-      if (!p.alive) continue;
-      p.thirst = Math.max(0, p.thirst - (3.2 * dt / 1000));
-      if (p.thirst <= 0) { p.alive = false; p.thirst = 0; }
-      if (p.grow > 0) p.grow = Math.max(0, p.grow - (dt / 600));
-    }
-
-    timeLeft -= dt / 1000;
-    if (timeLeft <= 0) {
-      running = false;
-      endScreen.style.display = 'block';
-    }
-  }
-
-  drawScene();
-  rafId = requestAnimationFrame(loop);
-}
-
-// updateParticles, drawScene, roundRect, drawCloud functions remain unchanged from your existing code...
-
-// --- Start button wiring & boot
-preloadAssets().then(() => {
-  loaderText.textContent = 'Assets ready';
-  startBtn.disabled = false;
-  startBtn.textContent = 'Start Game';
-  startBtn.addEventListener('click', () => { 
-    try { audioOrbSpawn.play(); audioOrbCollect.play(); } catch (e) {} 
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); 
+  // Move drops
+  drops.forEach(drop => {
+    drop.y -= drop.speed * dt;
   });
-});
+  drops = drops.filter(drop => drop.y > 0);
 
-startBtn.addEventListener('click', () => {
-  startDialog.style.display = 'none';
-  endScreen.style.display = 'none';
-  spawnPlants();
-  timeLeft = 60;
-  score = 0;
-  sunlightMeter = 0; superReady = false;
-  running = true;
-  lastTS = 0;
-  lastOrbTime = performance.now() - 3000;
-  rafId = requestAnimationFrame(loop);
+  // Check collisions with plants
+  drops.forEach(drop => {
+    plants.forEach(plant => {
+      if (drop.x < plant.x + plant.w &&
+          drop.x + drop.w > plant.x &&
+          drop.y < plant.y + plant.h &&
+          drop.h + drop.y > plant.y) {
+        plant.health = Math.min(100, plant.health + 10);
+        drop.remove = true;
+        score += 10;
+      }
+    });
+  });
+
+  drops = drops.filter(drop => !drop.remove);
+}
+
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw player
+  ctx.fillStyle = "blue";
+  ctx.fillRect(player.x, player.y, player.w, player.h);
+
+  // Draw plants
+  ctx.fillStyle = "green";
+  plants.forEach(p => {
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+  });
+
+  // Draw drops
+  ctx.fillStyle = "aqua";
+  drops.forEach(d => {
+    ctx.fillRect(d.x, d.y, d.w, d.h);
+  });
+
+  // Draw score
+  ctx.fillStyle = "black";
+  ctx.font = "20px Arial";
+  ctx.fillText("Score: " + score, 10, 30);
+  ctx.fillText("Time: " + Math.ceil(timeLeft), 10, 60);
+}
+
+// === INPUT HANDLING ===
+canvas.addEventListener("click", () => {
+  drops.push({
+    x: player.x + player.w / 2 - 5,
+    y: player.y,
+    w: 10,
+    h: 10,
+    speed: 300
+  });
 });
