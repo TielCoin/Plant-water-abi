@@ -1,3 +1,11 @@
+window.addEventListener("DOMContentLoaded", function () {
+  const refreshBtn = document.getElementById("refreshBtn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", function () {
+      location.reload();
+    });
+  }
+});
 // Completely block default touch gestures on the page
 
 document.addEventListener('touchmove', function(e) {
